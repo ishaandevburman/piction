@@ -7,3 +7,9 @@ piction
 *.test
 *.out
 __debug_bin
+
+# Ignore all Markdown files (local planning, not for public repos)
+*.md
+
+# Do not ignore README.md
+!**/README.md
