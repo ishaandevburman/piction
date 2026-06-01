@@ -1,15 +1,34 @@
-piction
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
-*.test
-*.out
-__debug_bin
+# Binaries
+/bin/
+/output/
 
-# Ignore all Markdown files (local planning, not for public repos)
+# Build output
+*.out
+*.exe
+*.test
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data
+*.db
+*.sqlite
+*.bin
+data/
+checkpoint/
+
+# Environment
+.env
+
+# Ignore all Markdown files
 *.md
 
-# Do not ignore README.md
-!**/README.md
+# Do not ignore readme.md (case-insensitive in most environments)
+!**/readme.md
