@@ -37,6 +37,7 @@ func main() {
 
 func handleWS(w http.ResponseWriter, r *http.Request) {
 	roomID := r.URL.Query().Get("room")
+	roomID = sanitizeRoomID(roomID)
 	if roomID == "" {
 		roomID = "default"
 	}

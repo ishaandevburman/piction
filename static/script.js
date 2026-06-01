@@ -16,7 +16,7 @@ const drawerLabel = document.getElementById('drawer-label')
 
 const pathParts = window.location.pathname.split('/').filter(Boolean)
 let roomId = (pathParts[0] === 'room' && pathParts[1]) ? pathParts[1] : 'default'
-roomId = roomId.replace(/[^a-zA-Z0-9_-]/g, '_')
+roomId = roomId.replace(/[^a-zA-Z0-9_-]/g, '_') || 'default'
 roomLabelEl.textContent = roomId
 joinRoomLabel.textContent = 'Room: ' + roomId
 
