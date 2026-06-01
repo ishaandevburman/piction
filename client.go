@@ -62,6 +62,8 @@ func (c *Client) ReadPump() {
 			c.hub.HandleSetName(c, msg)
 		case "start-game":
 			c.hub.HandleStartGame(c)
+		case "pick-word":
+			c.hub.HandlePickWord(c, msg)
 		case "draw":
 			c.hub.BroadcastDraw(msg, c)
 		case "chat":

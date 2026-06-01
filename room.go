@@ -4,16 +4,43 @@ import (
 	"encoding/json"
 	"math/rand"
 	"sync"
+	"time"
 )
 
 type GameState string
 
 const (
-	StateLobby  GameState = "lobby"
+	StateLobby   GameState = "lobby"
 	StatePicking GameState = "picking"
 	StateDrawing GameState = "drawing"
-	StateReveal GameState = "reveal"
+	StateReveal  GameState = "reveal"
 )
+
+var wordBank = map[string][]string{
+	"easy": {
+		"pizza", "sun", "cat", "fish", "apple", "bird", "book", "cake", "door", "egg",
+		"flag", "gift", "hat", "ice", "jam", "key", "leg", "moon", "nest", "owl",
+		"pen", "rain", "star", "tree", "umbrella", "van", "watch", "box", "yarn", "zebra",
+	},
+	"medium": {
+		"guitar", "camera", "bridge", "candle", "dragon", "eagle", "flute", "garden",
+		"hammer", "island", "jigsaw", "kettle", "ladder", "mirror", "needle", "orange",
+		"puzzle", "robot", "saddle", "tunnel", "vacuum", "waffle", "anchor", "barrel",
+		"castle", "diamond", "engine", "feather", "glacier", "hammock",
+	},
+	"hard": {
+		"chandelier", "microscope", "parachute", "skeleton", "thermometer", "accordion",
+		"barometer", "calendula", "dodecahedron", "escalator", "flamingo", "gondola",
+		"harmonica", "iguana", "jellyfish", "kaleidoscope", "labyrinth", "mannequin",
+		"narwhal", "origami", "pantomime", "questionnaire", "rhinoceros", "saxophone",
+		"tambourine", "ukulele", "ventriloquist", "windmill", "xylophone", "yacht",
+	},
+}
+
+type WordOption struct {
+	Word       string `json:"word"`
+	Difficulty string `json:"difficulty"`
+}
 
 type Player struct {
 	ID          string `json:"id"`
@@ -30,6 +57,9 @@ type Hub struct {
 	players     []Player
 	state       GameState
 	drawerID    string
+	currentWord string
+	wordOptions []WordOption
+	wordTimer   *time.Timer
 }
 
 func NewHub(roomID string) *Hub {
@@ -58,6 +88,7 @@ func (h *Hub) Unregister(c *Client) {
 	c.closeSend()
 
 	if empty {
+		h.stopTimer()
 		h.roomManager.removeRoom(h.roomID)
 	}
 }
@@ -85,7 +116,7 @@ func (h *Hub) removePlayer(userID string) {
 			break
 		}
 	}
-	if len(h.players) > 0 && h.players[0].IsHost == false {
+	if len(h.players) > 0 && !h.players[0].IsHost {
 		h.players[0].IsHost = true
 	}
 }
@@ -174,9 +205,15 @@ func (h *Hub) HandleStartGame(c *Client) {
 	}
 	h.state = StatePicking
 	h.drawerID = h.pickDrawer()
+	h.wordOptions = h.pickWordOptions()
 	h.mu.Unlock()
 
 	h.broadcastGameState()
+	h.sendWordOptions()
+
+	h.startTimer(15*time.Second, func() {
+		h.autoPickWord()
+	})
 }
 
 func (h *Hub) pickDrawer() string {
@@ -184,6 +221,146 @@ func (h *Hub) pickDrawer() string {
 		return ""
 	}
 	return h.players[rand.Intn(len(h.players))].ID
+}
+
+func (h *Hub) pickWordOptions() []WordOption {
+	opts := make([]WordOption, 0, 3)
+	for _, diff := range []string{"easy", "medium", "hard"} {
+		words := wordBank[diff]
+		if len(words) == 0 {
+			continue
+		}
+		opts = append(opts, WordOption{
+			Word:       words[rand.Intn(len(words))],
+			Difficulty: diff,
+		})
+	}
+	return opts
+}
+
+func (h *Hub) HandlePickWord(c *Client, msg []byte) {
+	h.mu.RLock()
+	if h.state != StatePicking || c.userID != h.drawerID {
+		h.mu.RUnlock()
+		return
+	}
+	h.mu.RUnlock()
+
+	var payload struct {
+		Word string `json:"word"`
+	}
+	if err := json.Unmarshal(msg, &payload); err != nil {
+		return
+	}
+
+	h.mu.Lock()
+	valid := false
+	var pickedDiff string
+	for _, wo := range h.wordOptions {
+		if wo.Word == payload.Word {
+			valid = true
+			pickedDiff = wo.Difficulty
+			break
+		}
+	}
+	if !valid {
+		h.mu.Unlock()
+		return
+	}
+
+	h.stopTimer()
+	h.currentWord = payload.Word
+	h.state = StateDrawing
+	h.mu.Unlock()
+
+	h.broadcastGameStateWithWord(pickedDiff)
+	h.sendYourWord()
+}
+
+func (h *Hub) autoPickWord() {
+	h.mu.Lock()
+	if h.state != StatePicking || len(h.wordOptions) == 0 {
+		h.mu.Unlock()
+		return
+	}
+	picked := h.wordOptions[0]
+	h.currentWord = picked.Word
+	h.state = StateDrawing
+	h.wordTimer = nil
+	h.mu.Unlock()
+
+	h.broadcastGameStateWithWord(picked.Difficulty)
+	h.sendYourWord()
+}
+
+func (h *Hub) sendWordOptions() {
+	h.mu.RLock()
+	opts := make([]WordOption, len(h.wordOptions))
+	copy(opts, h.wordOptions)
+	drawer := h.clientByUserID(h.drawerID)
+	h.mu.RUnlock()
+
+	if drawer == nil {
+		return
+	}
+
+	msg, _ := json.Marshal(map[string]any{
+		"type":  "word-options",
+		"words": opts,
+	})
+	select {
+	case drawer.send <- msg:
+	default:
+	}
+}
+
+func (h *Hub) sendYourWord() {
+	h.mu.RLock()
+	drawer := h.clientByUserID(h.drawerID)
+	word := h.currentWord
+	h.mu.RUnlock()
+
+	if drawer == nil {
+		return
+	}
+
+	msg, _ := json.Marshal(map[string]any{
+		"type": "your-word",
+		"word": word,
+	})
+	select {
+	case drawer.send <- msg:
+	default:
+	}
+}
+
+func (h *Hub) clientByUserID(userID string) *Client {
+	for cl := range h.clients {
+		if cl.userID == userID {
+			return cl
+		}
+	}
+	return nil
+}
+
+func (h *Hub) startTimer(d time.Duration, fn func()) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.stopTimerLocked()
+	h.wordTimer = time.AfterFunc(d, fn)
+}
+
+func (h *Hub) stopTimer() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.stopTimerLocked()
+}
+
+func (h *Hub) stopTimerLocked() {
+	if h.wordTimer != nil {
+		h.wordTimer.Stop()
+		h.wordTimer = nil
+	}
 }
 
 func (h *Hub) broadcastPlayers() {
@@ -223,6 +400,33 @@ func (h *Hub) broadcastGameState() {
 		"type":     "game-state",
 		"state":    state,
 		"drawerId": drawerID,
+	})
+
+	for _, cl := range clients {
+		select {
+		case cl.send <- msg:
+		default:
+		}
+	}
+}
+
+func (h *Hub) broadcastGameStateWithWord(difficulty string) {
+	h.mu.RLock()
+	state := h.state
+	drawerID := h.drawerID
+	wordLen := len(h.currentWord)
+	clients := make([]*Client, 0, len(h.clients))
+	for cl := range h.clients {
+		clients = append(clients, cl)
+	}
+	h.mu.RUnlock()
+
+	msg, _ := json.Marshal(map[string]any{
+		"type":       "game-state",
+		"state":      state,
+		"drawerId":   drawerID,
+		"wordLen":    wordLen,
+		"difficulty": difficulty,
 	})
 
 	for _, cl := range clients {

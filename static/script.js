@@ -34,6 +34,8 @@ let myUserId = ''
 let players = []
 let gameState = 'lobby'
 let drawerId = ''
+let myWord = ''
+let wordOptions = []
 
 joinModal.style.display = 'flex'
 joinNameInput.focus()
@@ -94,6 +96,15 @@ function connect(name) {
         gameState = msg.state
         drawerId = msg.drawerId || ''
         renderState()
+        updateWordInfo(msg)
+        break
+      case 'word-options':
+        wordOptions = msg.words || []
+        renderGameUI()
+        break
+      case 'your-word':
+        myWord = msg.word || ''
+        renderGameUI()
         break
     }
   }
@@ -125,11 +136,54 @@ function renderLobby() {
   waitingMsg.style.display = !isHost && gameState === 'lobby' ? 'block' : 'none'
 }
 
+const wordChoiceEl = document.getElementById('word-choice')
+const pickingWaitEl = document.getElementById('picking-wait')
+const wordButtonsEl = document.getElementById('word-buttons')
+const wordInfoEl = document.getElementById('word-info')
+
 function renderGameUI() {
   const drawer = players.find(p => p.id === drawerId)
   gameStateLabel.textContent = gameState
   drawerLabel.textContent = drawer ? `Drawing: ${escapeHtml(drawer.displayName)}` : ''
+  const isDrawer = myUserId === drawerId
+
+  if (gameState === 'picking') {
+    wordChoiceEl.style.display = isDrawer ? 'flex' : 'none'
+    pickingWaitEl.style.display = isDrawer ? 'none' : 'flex'
+    if (isDrawer) renderWordButtons()
+  } else {
+    wordChoiceEl.style.display = 'none'
+    pickingWaitEl.style.display = 'none'
+  }
 }
+
+function renderWordButtons() {
+  wordButtonsEl.innerHTML = wordOptions.map(wo =>
+    `<button class="word-btn" data-word="${escapeHtml(wo.word)}">
+      <span class="word-text">${escapeHtml(wo.word)}</span>
+      <span class="word-difficulty ${escapeHtml(wo.difficulty)}">${escapeHtml(wo.difficulty)}</span>
+    </button>`
+  ).join('')
+}
+
+function updateWordInfo(msg) {
+  if (msg.state === 'drawing') {
+    const label = myUserId === drawerId ? `Your word: ${myWord}` : `Word: ${msg.wordLen} letters (${msg.difficulty})`
+    wordInfoEl.textContent = label
+  } else {
+    wordInfoEl.textContent = ''
+  }
+}
+
+wordButtonsEl.addEventListener('click', (e) => {
+  const btn = e.target.closest('.word-btn')
+  if (!btn) return
+  const word = btn.dataset.word
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'pick-word', word }))
+  }
+  wordChoiceEl.style.display = 'none'
+})
 
 startGameBtn.addEventListener('click', () => {
   if (ws && ws.readyState === WebSocket.OPEN) {

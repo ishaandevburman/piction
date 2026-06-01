@@ -31,9 +31,20 @@
     <div id="game-info">
       <span id="game-state-label"></span>
       <span id="drawer-label"></span>
+      <span id="word-info"></span>
     </div>
-    <canvas id="canvas"></canvas>
-    <div id="sidebar">
+    <div id="game-main">
+      <div id="game-canvas-area">
+        <canvas id="canvas"></canvas>
+        <div id="word-choice" style="display:none">
+          <h2>Pick a word to draw</h2>
+          <div id="word-buttons"></div>
+        </div>
+        <div id="picking-wait" style="display:none">
+          <p>Drawer is picking a word...</p>
+        </div>
+      </div>
+      <div id="sidebar">
       <div id="scoreboard"></div>
       <div id="chat">
         <div id="chat-messages"></div>
