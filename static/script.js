@@ -126,6 +126,7 @@ joinBtn.addEventListener('click', () => {
   localStorage.setItem('piction_displayName', name)
   joinModal.style.display = 'none'
   appEl.style.display = 'block'
+  nameDisplay.textContent = name
   connect(name)
 })
 
