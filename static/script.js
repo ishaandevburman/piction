@@ -135,6 +135,7 @@ joinNameInput.addEventListener('keydown', (e) => {
 })
 
 nameDisplay.addEventListener('click', () => {
+  if (gameState !== 'lobby') return
   const input = document.createElement('input')
   input.type = 'text'
   input.value = nameDisplay.textContent
