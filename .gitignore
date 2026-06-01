@@ -27,6 +27,12 @@ checkpoint/
 # Environment
 .env
 
+# Vendor
+vendor/
+
+# Project binary
+/piction
+
 # Ignore all Markdown files
 *.md
 

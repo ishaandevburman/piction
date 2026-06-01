@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>piction</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div id="join-modal">
+  <div id="join-card">
+    <h1>piction</h1>
+    <p id="join-room-label"></p>
+    <input type="text" id="join-name-input" placeholder="Your name" maxlength="24" autofocus>
+    <button id="join-btn">Join</button>
+  </div>
+</div>
+<div id="app" style="display:none">
+  <div id="toolbar">
+    <span id="room-label"></span>
+    <span id="name-display"></span>
+    <span id="status" class="disconnected">Disconnected</span>
+  </div>
+  <div id="lobby">
+    <h2>Players</h2>
+    <div id="player-list"></div>
+    <button id="start-game-btn" style="display:none">Start Game</button>
+    <p id="waiting-msg">Waiting for host to start the game...</p>
+  </div>
+  <div id="game-area" style="display:none">
+    <div id="game-info">
+      <span id="game-state-label"></span>
+      <span id="drawer-label"></span>
+    </div>
+    <canvas id="canvas"></canvas>
+    <div id="sidebar">
+      <div id="scoreboard"></div>
+      <div id="chat">
+        <div id="chat-messages"></div>
+        <div id="chat-input-area">
+          <input type="text" id="chat-input" placeholder="Type your guess..." disabled>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="/static/script.js"></script>
+</body>
+</html>
