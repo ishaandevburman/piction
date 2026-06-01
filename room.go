@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"math/rand"
 	"sync"
 )
 
@@ -172,9 +173,17 @@ func (h *Hub) HandleStartGame(c *Client) {
 		return
 	}
 	h.state = StatePicking
+	h.drawerID = h.pickDrawer()
 	h.mu.Unlock()
 
 	h.broadcastGameState()
+}
+
+func (h *Hub) pickDrawer() string {
+	if len(h.players) == 0 {
+		return ""
+	}
+	return h.players[rand.Intn(len(h.players))].ID
 }
 
 func (h *Hub) broadcastPlayers() {
@@ -224,7 +233,19 @@ func (h *Hub) broadcastGameState() {
 	}
 }
 
+func (h *Hub) BroadcastDraw(msg []byte, sender *Client) {
+	h.broadcastExcept(msg, sender)
+}
+
+func (h *Hub) BroadcastChat(msg []byte, sender *Client) {
+	h.broadcastExcept(msg, sender)
+}
+
 func (h *Hub) Broadcast(msg []byte, sender *Client) {
+	h.broadcastExcept(msg, sender)
+}
+
+func (h *Hub) broadcastExcept(msg []byte, sender *Client) {
 	h.mu.RLock()
 	clients := make([]*Client, 0, len(h.clients))
 	for cl := range h.clients {

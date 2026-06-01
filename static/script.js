@@ -84,19 +84,31 @@ function connect(name) {
         players = msg.players || []
         gameState = msg.state || 'lobby'
         drawerId = msg.drawerId || ''
-        renderLobby()
+        renderState()
         break
       case 'players':
         players = msg.players || []
-        renderLobby()
+        renderState()
         break
       case 'game-state':
         gameState = msg.state
         drawerId = msg.drawerId || ''
-        renderLobby()
+        renderState()
         break
     }
   }
+}
+
+function renderState() {
+  if (gameState === 'lobby') {
+    lobbyEl.style.display = 'flex'
+    gameArea.style.display = 'none'
+  } else {
+    lobbyEl.style.display = 'none'
+    gameArea.style.display = 'flex'
+    renderGameUI()
+  }
+  renderLobby()
 }
 
 function renderLobby() {
@@ -111,6 +123,12 @@ function renderLobby() {
   const isHost = players.some(p => p.id === myUserId && p.isHost)
   startGameBtn.style.display = isHost && gameState === 'lobby' ? 'block' : 'none'
   waitingMsg.style.display = !isHost && gameState === 'lobby' ? 'block' : 'none'
+}
+
+function renderGameUI() {
+  const drawer = players.find(p => p.id === drawerId)
+  gameStateLabel.textContent = gameState
+  drawerLabel.textContent = drawer ? `Drawing: ${escapeHtml(drawer.displayName)}` : ''
 }
 
 startGameBtn.addEventListener('click', () => {
