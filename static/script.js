@@ -36,6 +36,8 @@ let gameState = 'lobby'
 let drawerId = ''
 let myWord = ''
 let wordOptions = []
+let wordLen = 0
+let difficulty = ''
 
 joinModal.style.display = 'flex'
 joinNameInput.focus()
@@ -95,8 +97,9 @@ function connect(name) {
       case 'game-state':
         gameState = msg.state
         drawerId = msg.drawerId || ''
+        wordLen = msg.wordLen || 0
+        difficulty = msg.difficulty || ''
         renderState()
-        updateWordInfo(msg)
         break
       case 'word-options':
         wordOptions = msg.words || []
@@ -119,7 +122,7 @@ function renderState() {
     gameArea.style.display = 'flex'
     renderGameUI()
   }
-  renderLobby()
+  if (gameState === 'lobby') renderLobby()
 }
 
 function renderLobby() {
@@ -151,9 +154,17 @@ function renderGameUI() {
     wordChoiceEl.style.display = isDrawer ? 'flex' : 'none'
     pickingWaitEl.style.display = isDrawer ? 'none' : 'flex'
     if (isDrawer) renderWordButtons()
+    wordInfoEl.textContent = ''
+  } else if (gameState === 'drawing') {
+    wordChoiceEl.style.display = 'none'
+    pickingWaitEl.style.display = 'none'
+    wordInfoEl.textContent = isDrawer
+      ? `Your word: ${myWord}`
+      : `Word: ${wordLen} letters (${difficulty})`
   } else {
     wordChoiceEl.style.display = 'none'
     pickingWaitEl.style.display = 'none'
+    wordInfoEl.textContent = ''
   }
 }
 
@@ -164,15 +175,6 @@ function renderWordButtons() {
       <span class="word-difficulty ${escapeHtml(wo.difficulty)}">${escapeHtml(wo.difficulty)}</span>
     </button>`
   ).join('')
-}
-
-function updateWordInfo(msg) {
-  if (msg.state === 'drawing') {
-    const label = myUserId === drawerId ? `Your word: ${myWord}` : `Word: ${msg.wordLen} letters (${msg.difficulty})`
-    wordInfoEl.textContent = label
-  } else {
-    wordInfoEl.textContent = ''
-  }
 }
 
 wordButtonsEl.addEventListener('click', (e) => {
