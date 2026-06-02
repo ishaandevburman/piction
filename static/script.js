@@ -292,6 +292,9 @@ function connect(name) {
         if (msg.duration && gameState === 'drawing') startTimer(msg.duration)
         if (gameState === 'reveal') {
           wordInfoEl.textContent = `The word was: ${escapeHtml(msg.word || '')}`
+          autoAdvance = msg.autoAdvance !== false
+          autoAdvanceCheckbox.checked = autoAdvance
+          startRevealCountdown(autoAdvance ? (msg.revealDuration || 6) : 0)
         }
         if (msg.correctGuessers) {
           msg.correctGuessers.forEach((uid, i) => {

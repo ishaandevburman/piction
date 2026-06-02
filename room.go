@@ -195,6 +195,7 @@ func (h *Hub) HandleJoin(c *Client, msg []byte) {
 	copy(strokes, h.strokes)
 	correctGuessers := make([]string, len(h.correctGuessers))
 	copy(correctGuessers, h.correctGuessers)
+	autoAdvance := h.autoAdvance
 
 	var difficulty string
 	if state == StateDrawing || state == StateReveal {
@@ -208,11 +209,12 @@ func (h *Hub) HandleJoin(c *Client, msg []byte) {
 	h.mu.Unlock()
 
 	initPayload := map[string]any{
-		"type":     "init",
-		"players":  players,
-		"state":    state,
-		"drawerId": drawerID,
-		"userId":   c.userID,
+		"type":        "init",
+		"players":     players,
+		"state":       state,
+		"drawerId":    drawerID,
+		"userId":      c.userID,
+		"autoAdvance": autoAdvance,
 	}
 	if state == StatePicking {
 		initPayload["wordOptions"] = wordOptions
