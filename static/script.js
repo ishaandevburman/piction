@@ -266,7 +266,6 @@ function connect(name) {
         renderState()
         if (msg.state === 'drawing' && msg.duration) {
           startTimer(msg.duration)
-          wordInfoEl.textContent = myUserId === drawerId ? `Your word: ${myWord}` : `Word: ${wordLen} letters (${difficulty})`
         } else if (msg.state === 'reveal') {
           stopTimer()
           wordInfoEl.textContent = `The word was: ${escapeHtml(msg.word || '')}`
@@ -377,6 +376,9 @@ function renderGameUI() {
     drawToolbar.style.display = isDrawer ? 'flex' : 'none'
     canvas.style.cursor = isDrawer ? 'crosshair' : 'default'
     resizeCanvas()
+    wordInfoEl.textContent = isDrawer
+      ? `Your word: ${myWord}`
+      : `Word: ${wordLen} letters (${difficulty})`
     if (isDrawer) {
       chatInput.disabled = true
     } else {
