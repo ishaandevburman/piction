@@ -88,6 +88,10 @@ function connect(name) {
         players = msg.players || []
         gameState = msg.state || 'lobby'
         drawerId = msg.drawerId || ''
+        wordLen = msg.wordLen || 0
+        difficulty = msg.difficulty || ''
+        myWord = msg.currentWord || ''
+        wordOptions = msg.wordOptions || []
         renderState()
         break
       case 'players':

@@ -80,7 +80,7 @@ func (h *Hub) Unregister(c *Client) {
 	h.mu.Lock()
 	delete(h.clients, c)
 	empty := len(h.clients) == 0
-	if !empty {
+	if !empty && !c.replaced {
 		h.removePlayer(c.userID)
 	}
 	h.mu.Unlock()
@@ -150,15 +150,34 @@ func (h *Hub) HandleJoin(c *Client, msg []byte) {
 	copy(players, h.players)
 	state := h.state
 	drawerID := h.drawerID
+	wordOptions := make([]WordOption, len(h.wordOptions))
+	copy(wordOptions, h.wordOptions)
+	currentWord := h.currentWord
 	h.mu.Unlock()
 
-	initMsg, _ := json.Marshal(map[string]any{
+	initPayload := map[string]any{
 		"type":     "init",
 		"players":  players,
 		"state":    state,
 		"drawerId": drawerID,
 		"userId":   c.userID,
-	})
+	}
+	if state == StatePicking {
+		initPayload["wordOptions"] = wordOptions
+	}
+	if state == StateDrawing {
+		initPayload["wordLen"] = len(currentWord)
+		if c.userID == drawerID {
+			initPayload["currentWord"] = currentWord
+		}
+		for _, wo := range wordOptions {
+			if wo.Word == currentWord {
+				initPayload["difficulty"] = wo.Difficulty
+				break
+			}
+		}
+	}
+	initMsg, _ := json.Marshal(initPayload)
 	select {
 	case c.send <- initMsg:
 	default:
@@ -438,6 +457,12 @@ func (h *Hub) broadcastGameStateWithWord(difficulty string) {
 }
 
 func (h *Hub) BroadcastDraw(msg []byte, sender *Client) {
+	h.mu.RLock()
+	ok := h.state == StateDrawing && sender.userID == h.drawerID
+	h.mu.RUnlock()
+	if !ok {
+		return
+	}
 	h.broadcastExcept(msg, sender)
 }
 
