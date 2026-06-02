@@ -65,9 +65,9 @@ func (c *Client) ReadPump() {
 		case "pick-word":
 			c.hub.HandlePickWord(c, msg)
 		case "draw":
-			c.hub.BroadcastDraw(msg, c)
+			c.hub.HandleDraw(c, msg)
 		case "chat":
-			c.hub.BroadcastChat(msg, c)
+			c.hub.HandleChat(c, msg)
 		default:
 			c.hub.Broadcast(msg, c)
 		}

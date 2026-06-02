@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"math/rand"
+	"strings"
 	"sync"
 	"time"
 )
@@ -42,6 +43,19 @@ type WordOption struct {
 	Difficulty string `json:"difficulty"`
 }
 
+type Point struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+}
+
+type Stroke struct {
+	ID        string  `json:"id"`
+	Color     string  `json:"color"`
+	BrushSize float64 `json:"brushSize"`
+	Tool      string  `json:"tool"`
+	Points    []Point `json:"points"`
+}
+
 type Player struct {
 	ID          string `json:"id"`
 	DisplayName string `json:"displayName"`
@@ -49,17 +63,27 @@ type Player struct {
 	IsHost      bool   `json:"isHost"`
 }
 
+var difficultyDuration = map[string]time.Duration{
+	"easy":   60 * time.Second,
+	"medium": 45 * time.Second,
+	"hard":   30 * time.Second,
+}
+
 type Hub struct {
-	roomID      string
-	roomManager *RoomManager
-	mu          sync.RWMutex
-	clients     map[*Client]bool
-	players     []Player
-	state       GameState
-	drawerID    string
-	currentWord string
-	wordOptions []WordOption
-	wordTimer   *time.Timer
+	roomID          string
+	roomManager     *RoomManager
+	mu              sync.RWMutex
+	clients         map[*Client]bool
+	players         []Player
+	state           GameState
+	drawerID        string
+	currentWord     string
+	wordOptions     []WordOption
+	wordTimer       *time.Timer
+	activeStroke    *Stroke
+	strokes         []Stroke
+	correctGuessers []string
+	drawingTimer    *time.Timer
 }
 
 func NewHub(roomID string) *Hub {
@@ -153,6 +177,20 @@ func (h *Hub) HandleJoin(c *Client, msg []byte) {
 	wordOptions := make([]WordOption, len(h.wordOptions))
 	copy(wordOptions, h.wordOptions)
 	currentWord := h.currentWord
+	strokes := make([]Stroke, len(h.strokes))
+	copy(strokes, h.strokes)
+	correctGuessers := make([]string, len(h.correctGuessers))
+	copy(correctGuessers, h.correctGuessers)
+
+	var difficulty string
+	if state == StateDrawing || state == StateReveal {
+		for _, wo := range wordOptions {
+			if wo.Word == currentWord {
+				difficulty = wo.Difficulty
+				break
+			}
+		}
+	}
 	h.mu.Unlock()
 
 	initPayload := map[string]any{
@@ -165,17 +203,22 @@ func (h *Hub) HandleJoin(c *Client, msg []byte) {
 	if state == StatePicking {
 		initPayload["wordOptions"] = wordOptions
 	}
+	if state == StateDrawing || state == StateReveal {
+		initPayload["strokes"] = strokes
+	}
 	if state == StateDrawing {
 		initPayload["wordLen"] = len(currentWord)
+		initPayload["difficulty"] = difficulty
+		initPayload["duration"] = int(difficultyDuration[difficulty].Seconds())
+		initPayload["correctGuessers"] = correctGuessers
 		if c.userID == drawerID {
 			initPayload["currentWord"] = currentWord
 		}
-		for _, wo := range wordOptions {
-			if wo.Word == currentWord {
-				initPayload["difficulty"] = wo.Difficulty
-				break
-			}
-		}
+	}
+	if state == StateReveal {
+		initPayload["word"] = currentWord
+		initPayload["difficulty"] = difficulty
+		initPayload["correctGuessers"] = correctGuessers
 	}
 	initMsg, _ := json.Marshal(initPayload)
 	select {
@@ -290,6 +333,11 @@ func (h *Hub) HandlePickWord(c *Client, msg []byte) {
 	h.stopTimer()
 	h.currentWord = payload.Word
 	h.state = StateDrawing
+	h.correctGuessers = nil
+	h.strokes = nil
+	h.wordOptions = nil
+	duration := difficultyDuration[pickedDiff]
+	h.drawingTimer = time.AfterFunc(duration, func() { h.handleTimeUp() })
 	h.mu.Unlock()
 
 	h.broadcastGameStateWithWord(pickedDiff)
@@ -306,6 +354,11 @@ func (h *Hub) autoPickWord() {
 	h.currentWord = picked.Word
 	h.state = StateDrawing
 	h.wordTimer = nil
+	h.correctGuessers = nil
+	h.strokes = nil
+	h.wordOptions = nil
+	duration := difficultyDuration[picked.Difficulty]
+	h.drawingTimer = time.AfterFunc(duration, func() { h.handleTimeUp() })
 	h.mu.Unlock()
 
 	h.broadcastGameStateWithWord(picked.Difficulty)
@@ -380,6 +433,61 @@ func (h *Hub) stopTimerLocked() {
 		h.wordTimer.Stop()
 		h.wordTimer = nil
 	}
+	if h.drawingTimer != nil {
+		h.drawingTimer.Stop()
+		h.drawingTimer = nil
+	}
+}
+
+func (h *Hub) handleTimeUp() {
+	h.mu.Lock()
+	if h.state != StateDrawing {
+		h.mu.Unlock()
+		return
+	}
+	h.state = StateReveal
+	h.stopTimerLocked()
+	h.mu.Unlock()
+
+	h.broadcastReveal()
+}
+
+func (h *Hub) handleAllGuessed() {
+	h.mu.Lock()
+	if h.state != StateDrawing {
+		h.mu.Unlock()
+		return
+	}
+	h.state = StateReveal
+	h.stopTimerLocked()
+	h.mu.Unlock()
+
+	h.broadcastReveal()
+}
+
+func (h *Hub) broadcastReveal() {
+	h.mu.RLock()
+	word := h.currentWord
+	drawerID := h.drawerID
+	clients := make([]*Client, 0, len(h.clients))
+	for cl := range h.clients {
+		clients = append(clients, cl)
+	}
+	h.mu.RUnlock()
+
+	msg, _ := json.Marshal(map[string]any{
+		"type":     "game-state",
+		"state":    StateReveal,
+		"drawerId": drawerID,
+		"word":     word,
+	})
+
+	for _, cl := range clients {
+		select {
+		case cl.send <- msg:
+		default:
+		}
+	}
 }
 
 func (h *Hub) broadcastPlayers() {
@@ -434,6 +542,7 @@ func (h *Hub) broadcastGameStateWithWord(difficulty string) {
 	state := h.state
 	drawerID := h.drawerID
 	wordLen := len(h.currentWord)
+	duration := int(difficultyDuration[difficulty].Seconds())
 	clients := make([]*Client, 0, len(h.clients))
 	for cl := range h.clients {
 		clients = append(clients, cl)
@@ -446,6 +555,7 @@ func (h *Hub) broadcastGameStateWithWord(difficulty string) {
 		"drawerId":   drawerID,
 		"wordLen":    wordLen,
 		"difficulty": difficulty,
+		"duration":   duration,
 	})
 
 	for _, cl := range clients {
@@ -472,6 +582,141 @@ func (h *Hub) BroadcastChat(msg []byte, sender *Client) {
 
 func (h *Hub) Broadcast(msg []byte, sender *Client) {
 	h.broadcastExcept(msg, sender)
+}
+
+func (h *Hub) HandleDraw(c *Client, msg []byte) {
+	var payload struct {
+		Action   string  `json:"action"`
+		Stroke   *Stroke `json:"stroke,omitempty"`
+		StrokeID string  `json:"strokeId,omitempty"`
+		X        float64 `json:"x,omitempty"`
+		Y        float64 `json:"y,omitempty"`
+	}
+	if err := json.Unmarshal(msg, &payload); err != nil {
+		return
+	}
+
+	h.mu.Lock()
+	if h.state != StateDrawing || c.userID != h.drawerID {
+		h.mu.Unlock()
+		return
+	}
+
+	switch payload.Action {
+	case "begin":
+		if payload.Stroke != nil {
+			h.activeStroke = &Stroke{
+				ID:        payload.Stroke.ID,
+				Color:     payload.Stroke.Color,
+				BrushSize: payload.Stroke.BrushSize,
+				Tool:      payload.Stroke.Tool,
+			}
+		}
+	case "point":
+		if h.activeStroke != nil && payload.StrokeID == h.activeStroke.ID {
+			h.activeStroke.Points = append(h.activeStroke.Points, Point{X: payload.X, Y: payload.Y})
+		}
+	case "end":
+		if h.activeStroke != nil && payload.StrokeID == h.activeStroke.ID {
+			stroke := *h.activeStroke
+			stroke.Points = make([]Point, len(h.activeStroke.Points))
+			copy(stroke.Points, h.activeStroke.Points)
+			h.strokes = append(h.strokes, stroke)
+			h.activeStroke = nil
+		}
+	case "clear":
+		h.strokes = nil
+		h.activeStroke = nil
+	}
+	h.mu.Unlock()
+
+	h.broadcastExcept(msg, c)
+}
+
+func (h *Hub) HandleChat(c *Client, msg []byte) {
+	var payload struct {
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(msg, &payload); err != nil {
+		return
+	}
+
+	h.mu.RLock()
+	isGuess := h.state == StateDrawing && c.userID != h.drawerID
+	word := h.currentWord
+	alreadyGuessed := false
+	for _, id := range h.correctGuessers {
+		if id == c.userID {
+			alreadyGuessed = true
+			break
+		}
+	}
+	h.mu.RUnlock()
+
+	if !isGuess || alreadyGuessed {
+		return
+	}
+
+	cleaned := strings.TrimSpace(strings.ToLower(payload.Message))
+	target := strings.TrimSpace(strings.ToLower(word))
+	isCorrect := cleaned == target
+
+	if isCorrect {
+		h.mu.Lock()
+		alreadyGuessed = false
+		for _, id := range h.correctGuessers {
+			if id == c.userID {
+				alreadyGuessed = true
+				break
+			}
+		}
+		if !alreadyGuessed {
+			h.correctGuessers = append(h.correctGuessers, c.userID)
+		}
+		place := len(h.correctGuessers)
+		allGuessed := place >= len(h.players)-1
+		h.mu.Unlock()
+
+		if alreadyGuessed {
+			return
+		}
+
+		correctMsg, _ := json.Marshal(map[string]any{
+			"type":        "correct-guess",
+			"userId":      c.userID,
+			"displayName": c.displayName,
+			"place":       place,
+		})
+		h.broadcastAll(correctMsg)
+
+		if allGuessed {
+			h.handleAllGuessed()
+		}
+	} else {
+		chatMsg, _ := json.Marshal(map[string]any{
+			"type":    "chat",
+			"user":    c.displayName,
+			"userId":  c.userID,
+			"message": payload.Message,
+		})
+		h.broadcastAll(chatMsg)
+	}
+}
+
+func (h *Hub) broadcastAll(msg []byte) {
+	h.mu.RLock()
+	clients := make([]*Client, 0, len(h.clients))
+	for cl := range h.clients {
+		clients = append(clients, cl)
+	}
+	h.mu.RUnlock()
+
+	for _, cl := range clients {
+		select {
+		case cl.send <- msg:
+		default:
+		}
+	}
 }
 
 func (h *Hub) broadcastExcept(msg []byte, sender *Client) {

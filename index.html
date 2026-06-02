@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>piction</title>
-<link rel="stylesheet" href="/static/style.css?v=1">
+<link rel="stylesheet" href="/static/style.css?v=2">
 </head>
 <body>
 <div id="join-modal">
@@ -32,6 +32,18 @@
       <span id="game-state-label"></span>
       <span id="drawer-label"></span>
       <span id="word-info"></span>
+      <span id="timer-display"></span>
+    </div>
+    <div id="draw-toolbar" style="display:none">
+      <div class="tool-group">
+        <button class="tool-btn active" data-tool="brush">Brush</button>
+        <button class="tool-btn" data-tool="eraser">Eraser</button>
+      </div>
+      <div class="tool-group" id="palette-swatches"></div>
+      <div class="tool-group">
+        <label>Size: <input type="range" id="size-slider" min="1" max="50" value="4"> <span id="size-display">4</span></label>
+      </div>
+      <button id="clear-canvas-btn">Clear</button>
     </div>
     <div id="game-main">
       <div id="game-canvas-area">
@@ -55,6 +67,6 @@
     </div>
   </div>
 </div>
-<script src="/static/script.js?v=1"></script>
+<script src="/static/script.js?v=2"></script>
 </body>
 </html>
