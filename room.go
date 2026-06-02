@@ -330,7 +330,7 @@ func (h *Hub) HandlePickWord(c *Client, msg []byte) {
 		return
 	}
 
-	h.stopTimer()
+	h.stopTimerLocked()
 	h.currentWord = payload.Word
 	h.state = StateDrawing
 	h.correctGuessers = nil
