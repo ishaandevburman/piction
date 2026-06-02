@@ -513,6 +513,30 @@ body {
   margin: 0;
 }
 
+#auto-advance-toggle {
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+#auto-advance-toggle label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: #555;
+}
+
+#auto-advance-toggle input[type="checkbox"] {
+  cursor: pointer;
+}
+
+#auto-advance-countdown {
+  font-size: 14px;
+  font-weight: 600;
+  color: #6A5CFF;
+  margin: 0;
+}
+
 #chat {
   flex: 1;
   display: flex;

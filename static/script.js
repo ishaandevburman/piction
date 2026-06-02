@@ -27,6 +27,9 @@ const clearCanvasBtn = document.getElementById('clear-canvas-btn')
 const revealArea = document.getElementById('reveal-area')
 const nextRoundBtn = document.getElementById('next-round-btn')
 const waitingNextRound = document.getElementById('waiting-next-round')
+const autoAdvanceToggle = document.getElementById('auto-advance-toggle')
+const autoAdvanceCheckbox = document.getElementById('auto-advance-checkbox')
+const autoAdvanceCountdown = document.getElementById('auto-advance-countdown')
 
 const pathParts = window.location.pathname.split('/').filter(Boolean)
 let roomId = (pathParts[0] === 'room' && pathParts[1]) ? pathParts[1] : 'default'
@@ -63,6 +66,9 @@ let currentBrushSize = 4
 let timerInterval = null
 let remainingSeconds = 0
 let allStrokes = []
+let autoAdvance = true
+let revealCountdownInterval = null
+let revealCountdownSecs = 0
 
 const PALETTE = ['#000000', '#ffffff', '#e74c3c', '#2ecc71', '#3498db', '#f1c40f', '#9b59b6', '#1abc9c', '#e67e22', '#8e44ad', '#95a5a6', '#d35400']
 
@@ -189,6 +195,30 @@ function stopTimer() {
   timerDisplay.textContent = ''
 }
 
+function startRevealCountdown(secs) {
+  stopRevealCountdown()
+  revealCountdownSecs = secs
+  if (secs <= 0) return
+  autoAdvanceCountdown.textContent = `Next round in ${secs}...`
+  revealCountdownInterval = setInterval(() => {
+    revealCountdownSecs--
+    if (revealCountdownSecs > 0) {
+      autoAdvanceCountdown.textContent = `Next round in ${revealCountdownSecs}...`
+    } else {
+      stopRevealCountdown()
+    }
+  }, 1000)
+}
+
+function stopRevealCountdown() {
+  if (revealCountdownInterval) {
+    clearInterval(revealCountdownInterval)
+    revealCountdownInterval = null
+  }
+  autoAdvanceCountdown.textContent = ''
+  revealCountdownSecs = 0
+}
+
 function updateTimerDisplay() {
   const m = Math.floor(remainingSeconds / 60)
   const s = remainingSeconds % 60
@@ -287,13 +317,18 @@ function connect(name) {
           stopTimer()
           wordInfoEl.textContent = `The word was: ${escapeHtml(msg.word || '')}`
           if (msg.players) players = msg.players
+          autoAdvance = msg.autoAdvance !== false
+          autoAdvanceCheckbox.checked = autoAdvance
           renderState()
+          startRevealCountdown(autoAdvance ? (msg.revealDuration || 6) : 0)
         } else if (msg.state === 'picking') {
           stopTimer()
+          stopRevealCountdown()
           resetCanvas()
           revealArea.style.display = 'none'
         } else if (msg.state === 'lobby') {
           stopTimer()
+          stopRevealCountdown()
           resetCanvas()
           revealArea.style.display = 'none'
         }
@@ -416,8 +451,16 @@ function renderGameUI() {
     resizeCanvas()
     const isHost = players.some(p => p.id === myUserId && p.isHost)
     revealArea.style.display = 'block'
-    nextRoundBtn.style.display = isHost ? 'block' : 'none'
-    waitingNextRound.style.display = isHost ? 'none' : 'block'
+    autoAdvanceToggle.style.display = isHost ? 'block' : 'none'
+    if (autoAdvance) {
+      autoAdvanceCountdown.style.display = 'block'
+      nextRoundBtn.style.display = 'none'
+      waitingNextRound.style.display = 'none'
+    } else {
+      autoAdvanceCountdown.style.display = 'none'
+      nextRoundBtn.style.display = isHost ? 'block' : 'none'
+      waitingNextRound.style.display = isHost ? 'none' : 'block'
+    }
   } else {
     wordChoiceEl.style.display = 'none'
     pickingWaitEl.style.display = 'none'
@@ -588,6 +631,13 @@ startGameBtn.addEventListener('click', () => {
 nextRoundBtn.addEventListener('click', () => {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'next-round' }))
+  }
+})
+
+autoAdvanceCheckbox.addEventListener('change', () => {
+  const checked = autoAdvanceCheckbox.checked
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'toggle-auto-advance', autoAdvance: checked }))
   }
 })
 

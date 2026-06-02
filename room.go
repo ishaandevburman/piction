@@ -70,11 +70,12 @@ var difficultyDuration = map[string]time.Duration{
 }
 
 const (
-	points1st    = 10
-	points2nd    = 7
-	points3rd    = 5
-	pointsLater  = 3
-	drawerPoints = 5
+	points1st         = 10
+	points2nd         = 7
+	points3rd         = 5
+	pointsLater       = 3
+	drawerPoints      = 5
+	revealTimeoutSecs = 6
 )
 
 type Hub struct {
@@ -94,13 +95,16 @@ type Hub struct {
 	strokes         []Stroke
 	correctGuessers []string
 	drawingTimer    *time.Timer
+	revealTimer     *time.Timer
+	autoAdvance     bool
 }
 
 func NewHub(roomID string) *Hub {
 	return &Hub{
-		roomID:  roomID,
-		clients: make(map[*Client]bool),
-		state:   StateLobby,
+		roomID:      roomID,
+		clients:     make(map[*Client]bool),
+		state:       StateLobby,
+		autoAdvance: true,
 	}
 }
 
@@ -310,17 +314,36 @@ func (h *Hub) HandleNextRound(c *Client) {
 		h.mu.Unlock()
 		return
 	}
+	if h.revealTimer != nil {
+		h.revealTimer.Stop()
+		h.revealTimer = nil
+	}
+	h.mu.Unlock()
+
+	h.startNextRound()
+}
+
+func (h *Hub) startNextRound() {
+	h.mu.Lock()
+	if h.state != StateReveal {
+		h.mu.Unlock()
+		return
+	}
+	h.state = StatePicking
+
+	if h.revealTimer != nil {
+		h.revealTimer.Stop()
+		h.revealTimer = nil
+	}
 
 	h.drawerIndex = (h.drawerIndex + 1) % len(h.players)
 	h.drawerID = h.players[h.drawerIndex].ID
 	h.currentWord = ""
-	h.wordOptions = nil
 	h.strokes = nil
 	h.activeStroke = nil
 	h.correctGuessers = nil
 	h.round++
 
-	h.state = StatePicking
 	h.wordOptions = h.pickWordOptions()
 	h.mu.Unlock()
 
@@ -330,6 +353,58 @@ func (h *Hub) HandleNextRound(c *Client) {
 	h.startTimer(15*time.Second, func() {
 		h.autoPickWord()
 	})
+}
+
+func (h *Hub) startRevealTimer() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if !h.autoAdvance {
+		return
+	}
+	if h.revealTimer != nil {
+		h.revealTimer.Stop()
+	}
+	h.revealTimer = time.AfterFunc(time.Duration(revealTimeoutSecs)*time.Second, func() {
+		h.startNextRound()
+	})
+}
+
+func (h *Hub) HandleToggleAutoAdvance(c *Client, msg []byte) {
+	var payload struct {
+		AutoAdvance bool `json:"autoAdvance"`
+	}
+	if err := json.Unmarshal(msg, &payload); err != nil {
+		return
+	}
+
+	h.mu.RLock()
+	isHost := false
+	for _, p := range h.players {
+		if p.ID == c.userID && p.IsHost {
+			isHost = true
+			break
+		}
+	}
+	h.mu.RUnlock()
+
+	if !isHost {
+		return
+	}
+
+	h.mu.Lock()
+	h.autoAdvance = payload.AutoAdvance
+	if !h.autoAdvance && h.revealTimer != nil {
+		h.revealTimer.Stop()
+		h.revealTimer = nil
+	}
+	if h.autoAdvance && h.state == StateReveal && h.revealTimer == nil {
+		h.revealTimer = time.AfterFunc(time.Duration(revealTimeoutSecs)*time.Second, func() {
+			h.startNextRound()
+		})
+	}
+	h.mu.Unlock()
+
+	h.broadcastReveal()
 }
 
 func (h *Hub) pickWordOptions() []WordOption {
@@ -528,6 +603,7 @@ func (h *Hub) handleTimeUp() {
 
 	h.broadcastReveal()
 	h.broadcastPlayers()
+	h.startRevealTimer()
 }
 
 func (h *Hub) handleAllGuessed() {
@@ -543,6 +619,7 @@ func (h *Hub) handleAllGuessed() {
 
 	h.broadcastReveal()
 	h.broadcastPlayers()
+	h.startRevealTimer()
 }
 
 func (h *Hub) broadcastReveal() {
@@ -553,6 +630,7 @@ func (h *Hub) broadcastReveal() {
 	copy(players, h.players)
 	correctGuessers := make([]string, len(h.correctGuessers))
 	copy(correctGuessers, h.correctGuessers)
+	autoAdvance := h.autoAdvance
 	clients := make([]*Client, 0, len(h.clients))
 	for cl := range h.clients {
 		clients = append(clients, cl)
@@ -566,6 +644,8 @@ func (h *Hub) broadcastReveal() {
 		"word":            word,
 		"players":         players,
 		"correctGuessers": correctGuessers,
+		"autoAdvance":     autoAdvance,
+		"revealDuration":  revealTimeoutSecs,
 	})
 
 	for _, cl := range clients {

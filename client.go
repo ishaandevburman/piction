@@ -70,6 +70,8 @@ func (c *Client) ReadPump() {
 			c.hub.HandleChat(c, msg)
 		case "next-round":
 			c.hub.HandleNextRound(c)
+		case "toggle-auto-advance":
+			c.hub.HandleToggleAutoAdvance(c, msg)
 		default:
 			c.hub.Broadcast(msg, c)
 		}
