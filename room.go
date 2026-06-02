@@ -561,6 +561,10 @@ func (h *Hub) stopTimerLocked() {
 		h.drawingTimer.Stop()
 		h.drawingTimer = nil
 	}
+	if h.revealTimer != nil {
+		h.revealTimer.Stop()
+		h.revealTimer = nil
+	}
 }
 
 func (h *Hub) awardScores() {
