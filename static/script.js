@@ -24,6 +24,9 @@ const ctx = canvas.getContext('2d')
 const chatMessages = document.getElementById('chat-messages')
 const chatInput = document.getElementById('chat-input')
 const clearCanvasBtn = document.getElementById('clear-canvas-btn')
+const revealArea = document.getElementById('reveal-area')
+const nextRoundBtn = document.getElementById('next-round-btn')
+const waitingNextRound = document.getElementById('waiting-next-round')
 
 const pathParts = window.location.pathname.split('/').filter(Boolean)
 let roomId = (pathParts[0] === 'room' && pathParts[1]) ? pathParts[1] : 'default'
@@ -150,6 +153,20 @@ function highlightSelectedColor() {
   })
 }
 
+function renderScoreboard() {
+  const sorted = [...players].sort((a, b) => b.score - a.score)
+  const html = sorted.map((p, i) => {
+    const rank = ordinal(i + 1)
+    const isYou = p.id === myUserId
+    return `<div class="scoreboard-entry${isYou ? ' is-you' : ''}">
+      <span class="rank">${rank}</span>
+      <span class="name">${escapeHtml(p.displayName)}</span>
+      <span class="score">${p.score}</span>
+    </div>`
+  }).join('')
+  document.getElementById('scoreboard').innerHTML = '<h3>Scores</h3>' + html
+}
+
 function startTimer(duration) {
   stopTimer()
   remainingSeconds = duration
@@ -269,12 +286,16 @@ function connect(name) {
         } else if (msg.state === 'reveal') {
           stopTimer()
           wordInfoEl.textContent = `The word was: ${escapeHtml(msg.word || '')}`
+          if (msg.players) players = msg.players
+          renderState()
         } else if (msg.state === 'picking') {
           stopTimer()
           resetCanvas()
+          revealArea.style.display = 'none'
         } else if (msg.state === 'lobby') {
           stopTimer()
           resetCanvas()
+          revealArea.style.display = 'none'
         }
         break
       case 'word-options':
@@ -344,6 +365,7 @@ function renderState() {
     renderGameUI()
   }
   if (gameState === 'lobby') renderLobby()
+  renderScoreboard()
 }
 
 function renderLobby() {
@@ -392,11 +414,16 @@ function renderGameUI() {
     canvas.style.cursor = 'default'
     chatInput.disabled = true
     resizeCanvas()
+    const isHost = players.some(p => p.id === myUserId && p.isHost)
+    revealArea.style.display = 'block'
+    nextRoundBtn.style.display = isHost ? 'block' : 'none'
+    waitingNextRound.style.display = isHost ? 'none' : 'block'
   } else {
     wordChoiceEl.style.display = 'none'
     pickingWaitEl.style.display = 'none'
     drawToolbar.style.display = 'none'
     chatInput.disabled = true
+    revealArea.style.display = 'none'
   }
 }
 
@@ -555,6 +582,12 @@ chatInput.addEventListener('keydown', (e) => {
 startGameBtn.addEventListener('click', () => {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'start-game' }))
+  }
+})
+
+nextRoundBtn.addEventListener('click', () => {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'next-round' }))
   }
 })
 

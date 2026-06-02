@@ -455,6 +455,64 @@ body {
   font-size: 14px;
 }
 
+.scoreboard-entry {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.scoreboard-entry .rank {
+  color: #888;
+  min-width: 28px;
+}
+
+.scoreboard-entry .name {
+  flex: 1;
+  font-weight: 500;
+}
+
+.scoreboard-entry .score {
+  font-weight: 700;
+  color: #6A5CFF;
+}
+
+.scoreboard-entry.is-you {
+  background: #eef0ff;
+  border-radius: 4px;
+  padding: 4px 6px;
+  margin: 2px -6px;
+}
+
+#reveal-area {
+  padding: 12px;
+  border-bottom: 1px solid #eee;
+  text-align: center;
+}
+
+#next-round-btn {
+  padding: 10px 24px;
+  border: none;
+  border-radius: 8px;
+  background: #6A5CFF;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  width: 100%;
+}
+
+#next-round-btn:hover {
+  background: #5A4CE0;
+}
+
+#waiting-next-round {
+  font-size: 13px;
+  color: #888;
+  margin: 0;
+}
+
 #chat {
   flex: 1;
   display: flex;

@@ -69,6 +69,14 @@ var difficultyDuration = map[string]time.Duration{
 	"hard":   30 * time.Second,
 }
 
+const (
+	points1st    = 10
+	points2nd    = 7
+	points3rd    = 5
+	pointsLater  = 3
+	drawerPoints = 5
+)
+
 type Hub struct {
 	roomID          string
 	roomManager     *RoomManager
@@ -77,6 +85,8 @@ type Hub struct {
 	players         []Player
 	state           GameState
 	drawerID        string
+	drawerIndex     int
+	round           int
 	currentWord     string
 	wordOptions     []WordOption
 	wordTimer       *time.Timer
@@ -266,7 +276,9 @@ func (h *Hub) HandleStartGame(c *Client) {
 		return
 	}
 	h.state = StatePicking
-	h.drawerID = h.pickDrawer()
+	h.round = 1
+	h.drawerIndex = rand.Intn(len(h.players))
+	h.drawerID = h.players[h.drawerIndex].ID
 	h.wordOptions = h.pickWordOptions()
 	h.mu.Unlock()
 
@@ -278,11 +290,46 @@ func (h *Hub) HandleStartGame(c *Client) {
 	})
 }
 
-func (h *Hub) pickDrawer() string {
-	if len(h.players) == 0 {
-		return ""
+func (h *Hub) HandleNextRound(c *Client) {
+	h.mu.RLock()
+	isHost := false
+	for _, p := range h.players {
+		if p.ID == c.userID && p.IsHost {
+			isHost = true
+			break
+		}
 	}
-	return h.players[rand.Intn(len(h.players))].ID
+	h.mu.RUnlock()
+
+	if !isHost {
+		return
+	}
+
+	h.mu.Lock()
+	if h.state != StateReveal {
+		h.mu.Unlock()
+		return
+	}
+
+	h.drawerIndex = (h.drawerIndex + 1) % len(h.players)
+	h.drawerID = h.players[h.drawerIndex].ID
+	h.currentWord = ""
+	h.wordOptions = nil
+	h.strokes = nil
+	h.activeStroke = nil
+	h.correctGuessers = nil
+	h.round++
+
+	h.state = StatePicking
+	h.wordOptions = h.pickWordOptions()
+	h.mu.Unlock()
+
+	h.broadcastGameState()
+	h.sendWordOptions()
+
+	h.startTimer(15*time.Second, func() {
+		h.autoPickWord()
+	})
 }
 
 func (h *Hub) pickWordOptions() []WordOption {
@@ -439,6 +486,35 @@ func (h *Hub) stopTimerLocked() {
 	}
 }
 
+func (h *Hub) awardScores() {
+	for i, id := range h.correctGuessers {
+		var pts int
+		switch i {
+		case 0:
+			pts = points1st
+		case 1:
+			pts = points2nd
+		case 2:
+			pts = points3rd
+		default:
+			pts = pointsLater
+		}
+		for j := range h.players {
+			if h.players[j].ID == id {
+				h.players[j].Score += pts
+				break
+			}
+		}
+	}
+	drawerPts := len(h.correctGuessers) * drawerPoints
+	for j := range h.players {
+		if h.players[j].ID == h.drawerID {
+			h.players[j].Score += drawerPts
+			break
+		}
+	}
+}
+
 func (h *Hub) handleTimeUp() {
 	h.mu.Lock()
 	if h.state != StateDrawing {
@@ -447,9 +523,11 @@ func (h *Hub) handleTimeUp() {
 	}
 	h.state = StateReveal
 	h.stopTimerLocked()
+	h.awardScores()
 	h.mu.Unlock()
 
 	h.broadcastReveal()
+	h.broadcastPlayers()
 }
 
 func (h *Hub) handleAllGuessed() {
@@ -460,15 +538,21 @@ func (h *Hub) handleAllGuessed() {
 	}
 	h.state = StateReveal
 	h.stopTimerLocked()
+	h.awardScores()
 	h.mu.Unlock()
 
 	h.broadcastReveal()
+	h.broadcastPlayers()
 }
 
 func (h *Hub) broadcastReveal() {
 	h.mu.RLock()
 	word := h.currentWord
 	drawerID := h.drawerID
+	players := make([]Player, len(h.players))
+	copy(players, h.players)
+	correctGuessers := make([]string, len(h.correctGuessers))
+	copy(correctGuessers, h.correctGuessers)
 	clients := make([]*Client, 0, len(h.clients))
 	for cl := range h.clients {
 		clients = append(clients, cl)
@@ -476,10 +560,12 @@ func (h *Hub) broadcastReveal() {
 	h.mu.RUnlock()
 
 	msg, _ := json.Marshal(map[string]any{
-		"type":     "game-state",
-		"state":    StateReveal,
-		"drawerId": drawerID,
-		"word":     word,
+		"type":            "game-state",
+		"state":           StateReveal,
+		"drawerId":        drawerID,
+		"word":            word,
+		"players":         players,
+		"correctGuessers": correctGuessers,
 	})
 
 	for _, cl := range clients {

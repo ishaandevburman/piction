@@ -68,6 +68,8 @@ func (c *Client) ReadPump() {
 			c.hub.HandleDraw(c, msg)
 		case "chat":
 			c.hub.HandleChat(c, msg)
+		case "next-round":
+			c.hub.HandleNextRound(c)
 		default:
 			c.hub.Broadcast(msg, c)
 		}
