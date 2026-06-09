@@ -33,6 +33,9 @@ vendor/
 # Project binary
 /piction
 
+# Runtime config (contains secrets)
+piction.properties
+
 # Ignore all Markdown files
 *.md
 

@@ -1,0 +1,41 @@
+# piction server properties
+# Copy this file to piction.properties and adjust values.
+# The server loads piction.properties (not this example file).
+
+# ---- Network ----
+server-ip=
+server-port=8080
+
+# ---- Security ----
+# Server-wide password for all rooms (empty = no auth).
+# Per-room passwords are a future feature.
+server-password=
+# Comma-separated list of allowed user IDs (empty = allow all).
+white-list=
+enforce-whitelist=false
+log-ips=true
+
+# ---- Game ----
+# 0 = unlimited; enforced on join.
+max-players=0
+# Comma-separated: easy,medium,hard. At least 1 required.
+# Word options always number 3, distributed proportionally
+# (e.g. easy,hard -> 2 easy + 1 hard; easy only -> 3 easy).
+difficulty-pool=easy,medium,hard
+drawing-time-easy=60
+drawing-time-medium=45
+drawing-time-hard=30
+# standard = points by guess order (10/7/5/3 + drawer share).
+# flat = all correct guessers get equal points (future).
+scoring-mode=standard
+# 0 = infinite; game ends after rounds-per-player x player-count.
+rounds-per-player=0
+# Startup default; host can toggle at runtime.
+auto-advance=true
+
+# ---- Miscellaneous ----
+motd=A Piction Server
+# 0 = no timeout; otherwise disconnect idle players after N seconds.
+player-idle-timeout=0
+# 0 = unlimited; otherwise max messages per second per connection.
+rate-limit=0

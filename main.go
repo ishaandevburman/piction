@@ -12,9 +12,13 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-var roomManager = NewRoomManager()
+var roomManager *RoomManager
 
 func main() {
+	cfg := LoadConfig()
+
+	roomManager = NewRoomManager(cfg)
+
 	fs := http.FileServer(http.Dir("static"))
 	http.Handle("/static/", http.StripPrefix("/static/", fs))
 
@@ -29,8 +33,8 @@ func main() {
 
 	http.HandleFunc("/ws", handleWS)
 
-	log.Println("piction starting on :8080")
-	if err := http.ListenAndServe(":8080", nil); err != nil {
+	log.Printf("piction starting on %s", cfg.Addr())
+	if err := http.ListenAndServe(cfg.Addr(), nil); err != nil {
 		log.Fatal(err)
 	}
 }
