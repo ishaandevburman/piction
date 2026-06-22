@@ -1,4 +1,4 @@
-package main
+package game
 
 import (
 	"encoding/json"
@@ -6,84 +6,22 @@ import (
 	"strings"
 	"sync"
 	"time"
-)
 
-type GameState string
-
-const (
-	StateLobby   GameState = "lobby"
-	StatePicking GameState = "picking"
-	StateDrawing GameState = "drawing"
-	StateReveal  GameState = "reveal"
-)
-
-var wordBank = map[string][]string{
-	// Full word lists preserved
-	"easy": {
-		"pizza", "sun", "cat", "fish", "apple", "bird", "book", "cake", "door", "egg",
-		"flag", "gift", "hat", "ice", "jam", "key", "leg", "moon", "nest", "owl",
-		"pen", "rain", "star", "tree", "umbrella", "van", "watch", "box", "yarn", "zebra",
-	},
-	"medium": {
-		"guitar", "camera", "bridge", "candle", "dragon", "eagle", "flute", "garden",
-		"hammer", "island", "jigsaw", "kettle", "ladder", "mirror", "needle", "orange",
-		"puzzle", "robot", "saddle", "tunnel", "vacuum", "waffle", "anchor", "barrel",
-		"castle", "diamond", "engine", "feather", "glacier", "hammock",
-	},
-	"hard": {
-		"chandelier", "microscope", "parachute", "skeleton", "thermometer", "accordion",
-		"barometer", "calendula", "dodecahedron", "escalator", "flamingo", "gondola",
-		"harmonica", "iguana", "jellyfish", "kaleidoscope", "labyrinth", "mannequin",
-		"narwhal", "origami", "pantomime", "questionnaire", "rhinoceros", "saxophone",
-		"tambourine", "ukulele", "ventriloquist", "windmill", "xylophone", "yacht",
-	},
-}
-
-type WordOption struct {
-	Word       string `json:"word"`
-	Difficulty string `json:"difficulty"`
-}
-
-type Point struct {
-	X float64 `json:"x"`
-	Y float64 `json:"y"`
-}
-
-type Stroke struct {
-	ID        string  `json:"id"`
-	Color     string  `json:"color"`
-	BrushSize float64 `json:"brushSize"`
-	Tool      string  `json:"tool"`
-	Points    []Point `json:"points"`
-}
-
-type Player struct {
-	ID          string `json:"id"`
-	DisplayName string `json:"displayName"`
-	Score       int    `json:"score"`
-	IsHost      bool   `json:"isHost"`
-}
-
-const (
-	points1st         = 10
-	points2nd         = 7
-	points3rd         = 5
-	pointsLater       = 3
-	drawerPoints      = 5
-	revealTimeoutSecs = 6
+	"github.com/ishaandevburman/piction/internal/config"
 )
 
 type Hub struct {
-	roomID          string
-	cfg             *Config
-	roomManager     *RoomManager
-	mu              sync.RWMutex
-	clients         map[*Client]bool
-	players         []Player
-	state           GameState
-	drawerID        string
-	drawerIndex     int
-	round           int
+	roomID      string
+	cfg         *config.Config
+	roomManager *RoomManager
+	mu          sync.RWMutex
+	clients     map[*Client]bool
+	players     []Player
+	state       GameState
+	drawerID    string
+	drawerIndex int
+	round       int
+
 	currentWord     string
 	wordOptions     []WordOption
 	wordTimer       *time.Timer
@@ -95,7 +33,7 @@ type Hub struct {
 	autoAdvance     bool
 }
 
-func NewHub(roomID string, cfg *Config) *Hub {
+func NewHub(roomID string, cfg *config.Config) *Hub {
 	return &Hub{
 		roomID:      roomID,
 		cfg:         cfg,
@@ -439,26 +377,6 @@ func (h *Hub) HandleToggleAutoAdvance(c *Client, msg []byte) {
 	h.broadcastReveal()
 }
 
-func (h *Hub) pickWordOptions() []WordOption {
-	pool := h.cfg.DifficultyPool
-	opts := make([]WordOption, 0, 3)
-	if len(pool) == 0 {
-		return opts
-	}
-	for i := 0; i < 3; i++ {
-		diff := pool[i%len(pool)]
-		words := wordBank[diff]
-		if len(words) == 0 {
-			continue
-		}
-		opts = append(opts, WordOption{
-			Word:       words[rand.Intn(len(words))],
-			Difficulty: diff,
-		})
-	}
-	return opts
-}
-
 func (h *Hub) HandlePickWord(c *Client, msg []byte) {
 	h.mu.RLock()
 	if h.state != StatePicking || c.userID != h.drawerID {
@@ -599,69 +517,6 @@ func (h *Hub) stopTimerLocked() {
 	if h.revealTimer != nil {
 		h.revealTimer.Stop()
 		h.revealTimer = nil
-	}
-}
-
-func (h *Hub) awardScores() {
-	switch h.cfg.ScoringMode {
-	case "flat":
-		h.awardScoresFlat()
-	default:
-		h.awardScoresStandard()
-	}
-}
-
-func (h *Hub) awardScoresStandard() {
-	for i, id := range h.correctGuessers {
-		var pts int
-		switch i {
-		case 0:
-			pts = points1st
-		case 1:
-			pts = points2nd
-		case 2:
-			pts = points3rd
-		default:
-			pts = pointsLater
-		}
-		for j := range h.players {
-			if h.players[j].ID == id {
-				h.players[j].Score += pts
-				break
-			}
-		}
-	}
-	drawerPts := len(h.correctGuessers) * drawerPoints
-	for j := range h.players {
-		if h.players[j].ID == h.drawerID {
-			h.players[j].Score += drawerPts
-			break
-		}
-	}
-}
-
-func (h *Hub) awardScoresFlat() {
-	if len(h.correctGuessers) == 0 {
-		return
-	}
-	pts := points1st / len(h.correctGuessers)
-	if pts < 1 {
-		pts = 1
-	}
-	for _, id := range h.correctGuessers {
-		for j := range h.players {
-			if h.players[j].ID == id {
-				h.players[j].Score += pts
-				break
-			}
-		}
-	}
-	drawerPts := len(h.correctGuessers) * drawerPoints
-	for j := range h.players {
-		if h.players[j].ID == h.drawerID {
-			h.players[j].Score += drawerPts
-			break
-		}
 	}
 }
 
@@ -978,13 +833,15 @@ func (h *Hub) broadcastExcept(msg []byte, sender *Client) {
 	}
 }
 
+// RoomManager manages all rooms.
+
 type RoomManager struct {
 	mu    sync.RWMutex
 	rooms map[string]*Hub
-	cfg   *Config
+	cfg   *config.Config
 }
 
-func NewRoomManager(cfg *Config) *RoomManager {
+func NewRoomManager(cfg *config.Config) *RoomManager {
 	return &RoomManager{
 		rooms: make(map[string]*Hub),
 		cfg:   cfg,

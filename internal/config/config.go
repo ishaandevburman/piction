@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"bufio"
@@ -30,7 +30,7 @@ type Config struct {
 	RateLimit         int
 }
 
-func defaultConfig() *Config {
+func Default() *Config {
 	return &Config{
 		ServerPort:        8080,
 		DifficultyPool:    []string{"easy", "medium", "hard"},
@@ -42,7 +42,7 @@ func defaultConfig() *Config {
 	}
 }
 
-func LoadConfig() *Config {
+func Load() *Config {
 	configPath := flag.String("config", "piction.properties", "path to config file")
 	help := flag.Bool("help", false, "show usage")
 	flag.BoolVar(help, "h", false, "show usage (shorthand)")
@@ -67,7 +67,7 @@ func LoadConfig() *Config {
 		os.Exit(0)
 	}
 
-	cfg := defaultConfig()
+	cfg := Default()
 
 	if props := loadPropertiesFile(*configPath); props != nil {
 		fmt.Printf("config: loaded %s\n", *configPath)

@@ -32,9 +32,13 @@ vendor/
 
 # Project binary
 /piction
+cmd/piction/piction
 
 # Runtime config (contains secrets)
 piction.properties
+
+# Docker
+.docker/
 
 # Ignore all Markdown files
 *.md

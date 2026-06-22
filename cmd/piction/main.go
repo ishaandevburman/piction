@@ -6,26 +6,29 @@ import (
 	"strings"
 
 	"github.com/gorilla/websocket"
+
+	"github.com/ishaandevburman/piction/internal/config"
+	"github.com/ishaandevburman/piction/internal/game"
 )
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-var roomManager *RoomManager
+var roomManager *game.RoomManager
 
 func main() {
-	cfg := LoadConfig()
+	cfg := config.Load()
 
-	roomManager = NewRoomManager(cfg)
+	roomManager = game.NewRoomManager(cfg)
 
-	fs := http.FileServer(http.Dir("static"))
+	fs := http.FileServer(http.Dir("web/static"))
 	http.Handle("/static/", http.StripPrefix("/static/", fs))
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/")
 		if strings.HasPrefix(path, "room/") {
-			http.ServeFile(w, r, "index.html")
+			http.ServeFile(w, r, "web/index.html")
 			return
 		}
 		http.Redirect(w, r, "/room/default", http.StatusFound)
@@ -53,7 +56,7 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	hub := roomManager.GetOrCreate(roomID)
-	client := NewClient(hub, conn)
+	client := game.NewClient(hub, conn)
 	hub.Register(client)
 
 	go client.WritePump()
