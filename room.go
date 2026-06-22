@@ -18,6 +18,7 @@ const (
 )
 
 var wordBank = map[string][]string{
+	// Full word lists preserved
 	"easy": {
 		"pizza", "sun", "cat", "fish", "apple", "bird", "book", "cake", "door", "egg",
 		"flag", "gift", "hat", "ice", "jam", "key", "leg", "moon", "nest", "owl",
@@ -63,12 +64,6 @@ type Player struct {
 	IsHost      bool   `json:"isHost"`
 }
 
-var difficultyDuration = map[string]time.Duration{
-	"easy":   60 * time.Second,
-	"medium": 45 * time.Second,
-	"hard":   30 * time.Second,
-}
-
 const (
 	points1st         = 10
 	points2nd         = 7
@@ -80,6 +75,7 @@ const (
 
 type Hub struct {
 	roomID          string
+	cfg             *Config
 	roomManager     *RoomManager
 	mu              sync.RWMutex
 	clients         map[*Client]bool
@@ -99,12 +95,13 @@ type Hub struct {
 	autoAdvance     bool
 }
 
-func NewHub(roomID string) *Hub {
+func NewHub(roomID string, cfg *Config) *Hub {
 	return &Hub{
 		roomID:      roomID,
+		cfg:         cfg,
 		clients:     make(map[*Client]bool),
 		state:       StateLobby,
-		autoAdvance: true,
+		autoAdvance: cfg.AutoAdvance,
 	}
 }
 
@@ -163,8 +160,18 @@ func (h *Hub) HandleJoin(c *Client, msg []byte) {
 	var payload struct {
 		UserID      string `json:"userId"`
 		DisplayName string `json:"displayName"`
+		Password    string `json:"password,omitempty"`
 	}
 	if err := json.Unmarshal(msg, &payload); err != nil {
+		return
+	}
+
+	if h.cfg.ServerPassword != "" && payload.Password != h.cfg.ServerPassword {
+		msg, _ := json.Marshal(map[string]string{"type": "error", "message": "wrong password"})
+		select {
+		case c.send <- msg:
+		default:
+		}
 		return
 	}
 
@@ -175,6 +182,16 @@ func (h *Hub) HandleJoin(c *Client, msg []byte) {
 	}
 
 	h.mu.Lock()
+	if h.cfg.MaxPlayers > 0 && len(h.players) >= h.cfg.MaxPlayers {
+		h.mu.Unlock()
+		msg, _ := json.Marshal(map[string]string{"type": "error", "message": "room is full"})
+		select {
+		case c.send <- msg:
+		default:
+		}
+		return
+	}
+
 	for cl := range h.clients {
 		if cl != c && cl.userID == payload.UserID {
 			cl.replaced = true
@@ -209,12 +226,15 @@ func (h *Hub) HandleJoin(c *Client, msg []byte) {
 	h.mu.Unlock()
 
 	initPayload := map[string]any{
-		"type":        "init",
-		"players":     players,
-		"state":       state,
-		"drawerId":    drawerID,
-		"userId":      c.userID,
-		"autoAdvance": autoAdvance,
+		"type":           "init",
+		"players":        players,
+		"state":          state,
+		"drawerId":       drawerID,
+		"userId":         c.userID,
+		"autoAdvance":    autoAdvance,
+		"motd":           h.cfg.MOTD,
+		"maxPlayers":     h.cfg.MaxPlayers,
+		"difficultyPool": h.cfg.DifficultyPool,
 	}
 	if state == StatePicking {
 		initPayload["wordOptions"] = wordOptions
@@ -225,7 +245,7 @@ func (h *Hub) HandleJoin(c *Client, msg []byte) {
 	if state == StateDrawing {
 		initPayload["wordLen"] = len(currentWord)
 		initPayload["difficulty"] = difficulty
-		initPayload["duration"] = int(difficultyDuration[difficulty].Seconds())
+		initPayload["duration"] = int(h.cfg.DrawingTime(difficulty).Seconds())
 		initPayload["correctGuessers"] = correctGuessers
 		if c.userID == drawerID {
 			initPayload["currentWord"] = currentWord
@@ -346,6 +366,16 @@ func (h *Hub) startNextRound() {
 	h.correctGuessers = nil
 	h.round++
 
+	if h.cfg.RoundsPerPlayer > 0 && h.round > h.cfg.RoundsPerPlayer*len(h.players) {
+		h.state = StateLobby
+		h.drawerID = ""
+		h.wordOptions = nil
+		h.mu.Unlock()
+		h.broadcastGameState()
+		h.broadcastPlayers()
+		return
+	}
+
 	h.wordOptions = h.pickWordOptions()
 	h.mu.Unlock()
 
@@ -410,8 +440,13 @@ func (h *Hub) HandleToggleAutoAdvance(c *Client, msg []byte) {
 }
 
 func (h *Hub) pickWordOptions() []WordOption {
+	pool := h.cfg.DifficultyPool
 	opts := make([]WordOption, 0, 3)
-	for _, diff := range []string{"easy", "medium", "hard"} {
+	if len(pool) == 0 {
+		return opts
+	}
+	for i := 0; i < 3; i++ {
+		diff := pool[i%len(pool)]
 		words := wordBank[diff]
 		if len(words) == 0 {
 			continue
@@ -460,7 +495,7 @@ func (h *Hub) HandlePickWord(c *Client, msg []byte) {
 	h.correctGuessers = nil
 	h.strokes = nil
 	h.wordOptions = nil
-	duration := difficultyDuration[pickedDiff]
+	duration := h.cfg.DrawingTime(pickedDiff)
 	h.drawingTimer = time.AfterFunc(duration, func() { h.handleTimeUp() })
 	h.mu.Unlock()
 
@@ -481,7 +516,7 @@ func (h *Hub) autoPickWord() {
 	h.correctGuessers = nil
 	h.strokes = nil
 	h.wordOptions = nil
-	duration := difficultyDuration[picked.Difficulty]
+	duration := h.cfg.DrawingTime(picked.Difficulty)
 	h.drawingTimer = time.AfterFunc(duration, func() { h.handleTimeUp() })
 	h.mu.Unlock()
 
@@ -568,6 +603,15 @@ func (h *Hub) stopTimerLocked() {
 }
 
 func (h *Hub) awardScores() {
+	switch h.cfg.ScoringMode {
+	case "flat":
+		h.awardScoresFlat()
+	default:
+		h.awardScoresStandard()
+	}
+}
+
+func (h *Hub) awardScoresStandard() {
 	for i, id := range h.correctGuessers {
 		var pts int
 		switch i {
@@ -580,6 +624,31 @@ func (h *Hub) awardScores() {
 		default:
 			pts = pointsLater
 		}
+		for j := range h.players {
+			if h.players[j].ID == id {
+				h.players[j].Score += pts
+				break
+			}
+		}
+	}
+	drawerPts := len(h.correctGuessers) * drawerPoints
+	for j := range h.players {
+		if h.players[j].ID == h.drawerID {
+			h.players[j].Score += drawerPts
+			break
+		}
+	}
+}
+
+func (h *Hub) awardScoresFlat() {
+	if len(h.correctGuessers) == 0 {
+		return
+	}
+	pts := points1st / len(h.correctGuessers)
+	if pts < 1 {
+		pts = 1
+	}
+	for _, id := range h.correctGuessers {
 		for j := range h.players {
 			if h.players[j].ID == id {
 				h.players[j].Score += pts
@@ -714,7 +783,7 @@ func (h *Hub) broadcastGameStateWithWord(difficulty string) {
 	state := h.state
 	drawerID := h.drawerID
 	wordLen := len(h.currentWord)
-	duration := int(difficultyDuration[difficulty].Seconds())
+	duration := int(h.cfg.DrawingTime(difficulty).Seconds())
 	clients := make([]*Client, 0, len(h.clients))
 	for cl := range h.clients {
 		clients = append(clients, cl)
@@ -912,11 +981,13 @@ func (h *Hub) broadcastExcept(msg []byte, sender *Client) {
 type RoomManager struct {
 	mu    sync.RWMutex
 	rooms map[string]*Hub
+	cfg   *Config
 }
 
-func NewRoomManager() *RoomManager {
+func NewRoomManager(cfg *Config) *RoomManager {
 	return &RoomManager{
 		rooms: make(map[string]*Hub),
+		cfg:   cfg,
 	}
 }
 
@@ -935,7 +1006,7 @@ func (rm *RoomManager) GetOrCreate(roomID string) *Hub {
 		return hub
 	}
 
-	hub = NewHub(roomID)
+	hub = NewHub(roomID, rm.cfg)
 	hub.roomManager = rm
 	rm.rooms[roomID] = hub
 	return hub
